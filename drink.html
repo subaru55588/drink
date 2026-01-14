@@ -3,22 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>今日你喝哪一杯？</title>
+  <title>艾瑪的飲料日記</title>
   
-  <!-- ★★★ 設定主畫面圖示 (Icon) ★★★ -->
-  <!-- 告訴 iPhone 加入主畫面時要用哪張圖 -->
-  <link rel="apple-touch-icon" href="icon.png">
-  <!-- 電腦版瀏覽器的小圖示 -->
-  <link rel="shortcut icon" href="icon.png">
-  
-  <!-- PWA 設定：讓它看起來像原生 App -->
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="手搖紀錄">
-  <meta name="theme-color" content="#FFFBEB">
-  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#F2F0E9">
   
-  <!-- 載入 Tailwind CSS (樣式) -->
+  <!-- 載入 Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
   <!-- 載入 React 和 ReactDOM -->
@@ -27,309 +18,490 @@
   
   <!-- 載入 Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- 載入 Icon (Lucide) -->
+  <script src="https://unpkg.com/lucide@latest"></script>
 
   <style>
-    /* 修正 iOS 點擊高亮問題 */
     * { -webkit-tap-highlight-color: transparent; }
-    /* 確保全螢幕高度正確 */
     html, body { 
       height: 100%; 
-      overscroll-behavior-y: none; /* 防止下拉重整 */
+      overscroll-behavior-y: none;
+      background-color: #F2F0E9;
     }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    
+    /* 隱藏捲軸但保留功能 */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* 動畫 */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    
+    /* 手寫字體 fallback */
+    .font-hand { font-family: "Comic Sans MS", "Chalkboard SE", "Segoe UI Emoji", sans-serif; }
   </style>
+  
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            m: {
+              bg: '#F2F0E9',       // 紙張白
+              card: '#FCFAF7',     // 卡片白
+              primary: '#8C9A8E',  // 灰綠 (主色)
+              secondary: '#B5A89E',// 暖灰 (次要)
+              accent: '#D6C0B5',   // 乾燥玫瑰粉 (點綴)
+              text: '#5E5C58',     // 深灰字
+              subtext: '#94918C',  // 淺灰字
+              line: '#E6E2DC',     // 分隔線
+              hot: '#E09F8F',      // 熱飲色
+              ice: '#A6BCC4',      // 冷飲色
+            }
+          },
+          boxShadow: {
+            'soft': '0 4px 20px -2px rgba(94, 92, 88, 0.05)',
+            'inner-soft': 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.02)',
+          }
+        }
+      }
+    }
+  </script>
 </head>
-<body class="bg-amber-50">
-  <div id="root"></div>
+<body class="bg-m-bg text-m-text">
+  <div id="root" class="h-full flex flex-col max-w-md mx-auto bg-m-bg shadow-2xl overflow-hidden relative"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useMemo } = React;
+    const { Cup, Calendar, BarChart3, Plus, Trash2, X, ChevronLeft, ChevronRight, Droplets, Thermometer, Coffee } = lucide;
 
+    // --- 全域變數與輔助函數 ---
+    const ICE_OPTIONS = ['正常', '少冰', '微冰', '去冰', '常溫', '溫', '熱'];
+    const SUGAR_OPTIONS = ['全糖', '少糖', '半糖', '微糖', '一分糖', '無糖'];
+
+    const formatDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    
+    const getDaysInMonth = (date) => {
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      return {
+        days: new Date(year, month + 1, 0).getDate(),
+        firstDay: new Date(year, month, 1).getDay()
+      };
+    };
+
+    const calculateStats = (records) => {
+      let cups = 0, cost = 0, shops = {}, ices = {}, sugars = {};
+      Object.values(records).forEach(dayList => {
+        dayList.forEach(r => {
+          cups++;
+          cost += r.price;
+          shops[r.shop] = (shops[r.shop] || 0) + 1;
+          ices[r.ice] = (ices[r.ice] || 0) + 1;
+          sugars[r.sugar] = (sugars[r.sugar] || 0) + 1;
+        });
+      });
+      const topShop = Object.entries(shops).sort((a,b) => b[1]-a[1])[0];
+      return { cups, cost, topShop, ices, sugars };
+    };
+
+    // --- 圖示元件 ---
+    const Icons = {
+      Cup: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" x2="6" y1="2" y2="8"/><line x1="10" x2="10" y1="2" y2="8"/><line x1="14" x2="14" y1="2" y2="8"/></svg>,
+      Calendar: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>,
+      Stats: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg>,
+      Plus: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>,
+      Trash: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>,
+      X: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+      Left: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>,
+      Right: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>,
+    };
+
+    // --- 子元件 (提取至 App 外部) ---
+    
+    const MainHeader = () => (
+      <div className="pt-8 pb-2 flex flex-col items-center justify-center bg-m-bg animate-fade-in">
+        <h1 className="text-xl font-bold text-m-text tracking-widest flex items-center gap-2 font-hand">
+          <span className="text-2xl animate-bounce" style={{animationDuration: '3s'}}>✨</span> 
+          <span className="relative z-10 px-1">
+            艾瑪的飲料日記
+            <span className="absolute bottom-1 left-0 w-full h-3 bg-m-primary/30 -z-10 -rotate-2 rounded-full transform scale-105"></span>
+          </span>
+          <span className="text-2xl animate-bounce" style={{animationDuration: '3s', animationDelay: '0.5s'}}>🧸</span>
+        </h1>
+        <p className="text-[10px] text-m-secondary tracking-[0.3em] mt-2 uppercase font-medium">My Boba Daily</p>
+      </div>
+    );
+
+    const CalendarHeader = ({ currentDate, changeMonth, records }) => {
+      const monthTotal = useMemo(() => {
+        let total = 0;
+        const prefix = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+        Object.keys(records).forEach(key => {
+          if (key.startsWith(prefix)) {
+            records[key].forEach(r => total += r.price);
+          }
+        });
+        return total;
+      }, [currentDate, records]);
+
+      return (
+        <div className="flex justify-between items-center px-6 py-4 bg-m-bg">
+          <button onClick={() => changeMonth(-1)} className="p-2 rounded-full hover:bg-white/50 text-m-secondary transition-colors"><Icons.Left/></button>
+          <div className="flex flex-col items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-bold text-m-text tracking-widest font-serif">
+                {currentDate.toLocaleString('default', { month: 'long' })}
+              </span>
+              <span className="text-xs font-bold text-m-primary bg-white/60 px-2 py-0.5 rounded-full border border-m-primary/20 shadow-sm flex items-center gap-1">
+                <span className="text-[10px] text-m-secondary font-normal uppercase">Spent</span>
+                ${monthTotal}
+              </span>
+            </div>
+            <span className="text-[10px] text-m-subtext tracking-widest">{currentDate.getFullYear()}</span>
+          </div>
+          <button onClick={() => changeMonth(1)} className="p-2 rounded-full hover:bg-white/50 text-m-secondary transition-colors"><Icons.Right/></button>
+        </div>
+      );
+    };
+
+    const CalendarGrid = ({ currentDate, selectedDateKey, setSelectedDateKey, setShowAddForm, records }) => {
+      const { days, firstDay } = getDaysInMonth(currentDate);
+      const blanks = Array(firstDay).fill(null);
+      const dayArray = Array.from({ length: days }, (_, i) => i + 1);
+      const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+      return (
+        <div className="px-4 pb-4 border-b border-m-line/50">
+          <div className="grid grid-cols-7 mb-2">
+            {weekDays.map(d => <div key={d} className="text-center text-[10px] font-bold text-m-secondary uppercase tracking-wider py-2">{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-y-2">
+            {blanks.map((_, i) => <div key={`blank-${i}`} />)}
+            {dayArray.map(day => {
+              const dateKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              const isSelected = selectedDateKey === dateKey;
+              const isToday = formatDateKey(new Date()) === dateKey;
+              const hasRecord = records[dateKey]?.length > 0;
+              const recordCount = records[dateKey]?.length || 0;
+
+              return (
+                <div key={day} className="flex flex-col items-center justify-center relative h-12">
+                  <button 
+                    onClick={() => { setSelectedDateKey(dateKey); setShowAddForm(false); }}
+                    className={`
+                      w-9 h-9 flex items-center justify-center rounded-full text-sm font-medium transition-all duration-300 relative z-10
+                      ${isSelected ? 'bg-m-primary text-white shadow-lg shadow-m-primary/30 scale-105' : 
+                        isToday ? 'text-m-primary font-bold border border-m-primary/30' : 'text-m-text hover:bg-white'}
+                    `}
+                  >
+                    {day}
+                  </button>
+                  <div className="flex gap-0.5 mt-1 h-1.5">
+                    {hasRecord && Array.from({length: recordCount}).map((_, i) => (
+                      <div key={i} className={`w-1 h-1 rounded-full ${isSelected ? 'bg-m-primary/30' : 'bg-m-accent'}`}></div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
+    const RecordList = ({ records, selectedDateKey, handleDelete, setShowAddForm }) => {
+      const dayRecords = records[selectedDateKey] || [];
+      
+      return (
+        <div className="flex-1 overflow-y-auto bg-white/50 relative">
+          <div className="p-6 pb-24">
+            <div className="flex justify-between items-end mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-m-subtext uppercase tracking-wider mb-1">Selected Date</h3>
+                <div className="text-2xl font-serif text-m-text">
+                  {selectedDateKey ? new Date(selectedDateKey).getDate() : '--'} 
+                  <span className="text-base ml-2 font-normal text-m-subtext">
+                    {selectedDateKey ? new Date(selectedDateKey).toLocaleString('default', { month: 'short' }) : ''}
+                  </span>
+                </div>
+              </div>
+              <div className="text-xs text-m-subtext">
+                {dayRecords.length} Drinks
+              </div>
+            </div>
+
+            {dayRecords.length > 0 ? (
+              <div className="space-y-3">
+                {dayRecords.map((r, i) => (
+                  <div key={r.id} className="bg-white rounded-2xl p-4 shadow-soft flex justify-between items-center group animate-fade-in" style={{animationDelay: `${i*0.1}s`}}>
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${['熱', '溫'].includes(r.ice) ? 'bg-m-hot/20 text-m-hot' : 'bg-m-ice/20 text-m-ice'}`}>
+                        <Icons.Cup />
+                      </div>
+                      <div>
+                        <div className="font-bold text-m-text text-sm">{r.item}</div>
+                        <div className="text-xs text-m-subtext mt-0.5">{r.shop}</div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="font-bold text-m-primary">${r.price}</span>
+                      <div className="flex gap-1">
+                        <span className="text-[10px] px-1.5 py-0.5 bg-m-bg rounded text-m-subtext">{r.ice}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 bg-m-bg rounded text-m-subtext">{r.sugar}</span>
+                      </div>
+                      <button onClick={() => handleDelete(r.id)} className="text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-2">
+                         <Icons.Trash />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-10 text-m-secondary/50">
+                <div className="mb-2 opacity-50"><Icons.Cup /></div>
+                <p className="text-sm">尚未紀錄</p>
+              </div>
+            )}
+          </div>
+
+          <button 
+            onClick={() => setShowAddForm(true)}
+            className="absolute bottom-6 right-6 w-14 h-14 bg-m-primary text-white rounded-full shadow-lg shadow-m-primary/40 flex items-center justify-center hover:scale-105 active:scale-95 transition-all z-20"
+          >
+            <Icons.Plus />
+          </button>
+        </div>
+      );
+    };
+
+    const AddForm = ({ showAddForm, setShowAddForm, handleAddRecord, formData, setFormData }) => {
+      if (!showAddForm) return null;
+      return (
+        <div className="absolute inset-0 z-50 flex flex-col justify-end bg-black/20 backdrop-blur-[1px]">
+          <div className="bg-white rounded-t-3xl p-6 shadow-2xl animate-fade-in">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-bold text-m-text text-lg">新增紀錄</h3>
+              <button onClick={() => setShowAddForm(false)} className="p-1 rounded-full bg-m-bg text-m-text"><Icons.X /></button>
+            </div>
+            
+            <form onSubmit={handleAddRecord} className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-m-subtext uppercase">Shop</label>
+                  <input autoFocus className="w-full bg-m-bg border-none rounded-xl p-3 text-sm focus:ring-1 focus:ring-m-primary placeholder-m-secondary/50" placeholder="店名" value={formData.shop} onChange={e=>setFormData({...formData, shop: e.target.value})} required />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-m-subtext uppercase">Drink</label>
+                  <input className="w-full bg-m-bg border-none rounded-xl p-3 text-sm focus:ring-1 focus:ring-m-primary placeholder-m-secondary/50" placeholder="品項" value={formData.item} onChange={e=>setFormData({...formData, item: e.target.value})} required />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-m-subtext uppercase">Price</label>
+                <input type="number" className="w-full bg-m-bg border-none rounded-xl p-3 text-sm focus:ring-1 focus:ring-m-primary placeholder-m-secondary/50" placeholder="$" value={formData.price} onChange={e=>setFormData({...formData, price: e.target.value})} required />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-m-subtext uppercase mb-2 block">Ice / Temp</label>
+                <div className="flex flex-wrap gap-2">
+                  {ICE_OPTIONS.map(opt => (
+                    <button key={opt} type="button" onClick={() => setFormData({...formData, ice: opt})} 
+                      className={`text-xs px-3 py-2 rounded-lg border transition-all ${formData.ice === opt ? 'bg-m-text text-white border-m-text' : 'bg-white border-m-line text-m-subtext'}`}>
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-m-subtext uppercase mb-2 block">Sugar</label>
+                <div className="flex flex-wrap gap-2">
+                  {SUGAR_OPTIONS.map(opt => (
+                    <button key={opt} type="button" onClick={() => setFormData({...formData, sugar: opt})} 
+                      className={`text-xs px-3 py-2 rounded-lg border transition-all ${formData.sugar === opt ? 'bg-m-accent text-white border-m-accent' : 'bg-white border-m-line text-m-subtext'}`}>
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button type="submit" className="w-full bg-m-primary text-white font-bold py-4 rounded-xl shadow-lg shadow-m-primary/20 hover:bg-m-primary/90 transition-all mt-4">
+                Add to Diary
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    };
+
+    const StatsView = ({ records }) => {
+      const stats = calculateStats(records);
+      return (
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white/50">
+          <h2 className="text-2xl font-serif text-m-text mb-6">Summary</h2>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-white p-5 rounded-2xl shadow-soft flex flex-col justify-between h-32">
+              <div className="bg-m-bg w-8 h-8 rounded-full flex items-center justify-center text-m-primary"><Icons.Cup size={16}/></div>
+              <div>
+                <div className="text-3xl font-bold text-m-text">{stats.cups}</div>
+                <div className="text-xs text-m-subtext">Total Cups</div>
+              </div>
+            </div>
+            <div className="bg-white p-5 rounded-2xl shadow-soft flex flex-col justify-between h-32">
+              <div className="bg-m-bg w-8 h-8 rounded-full flex items-center justify-center text-m-accent"><span className="font-bold text-xs">$</span></div>
+              <div>
+                <div className="text-3xl font-bold text-m-text">{stats.cost}</div>
+                <div className="text-xs text-m-subtext">Total Spent</div>
+              </div>
+            </div>
+          </div>
+
+          {stats.topShop && (
+            <div className="bg-m-text text-m-bg p-5 rounded-2xl shadow-lg relative overflow-hidden">
+              <div className="relative z-10">
+                <div className="text-xs opacity-60 uppercase tracking-widest mb-1">Favorite Shop</div>
+                <div className="text-2xl font-bold">{stats.topShop[0]}</div>
+                <div className="mt-4 text-sm opacity-80">Ordered {stats.topShop[1]} times</div>
+              </div>
+              <div className="absolute -right-4 -bottom-4 opacity-10 rotate-12 transform scale-150">
+                <Icons.Cup size={100} />
+              </div>
+            </div>
+          )}
+          
+          <div className="bg-white p-5 rounded-2xl shadow-soft">
+            <h3 className="text-sm font-bold text-m-subtext uppercase mb-4">Sugar Preference</h3>
+            <div className="space-y-2">
+              {Object.entries(stats.sugars).map(([k, v]) => (
+                <div key={k} className="flex items-center gap-2 text-xs">
+                  <div className="w-12 text-m-subtext text-right">{k}</div>
+                  <div className="flex-1 h-2 bg-m-bg rounded-full overflow-hidden">
+                    <div className="h-full bg-m-accent" style={{width: `${(v/stats.cups)*100}%`}}></div>
+                  </div>
+                  <div className="w-6 text-m-text font-bold">{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // --- 主 App 元件 ---
     const App = () => {
-      // --- 狀態管理 ---
+      // --- 狀態 ---
       const [currentDate, setCurrentDate] = useState(new Date());
-      const [selectedDate, setSelectedDate] = useState(null);
+      const [selectedDateKey, setSelectedDateKey] = useState(null);
       const [records, setRecords] = useState({});
       const [view, setView] = useState('calendar');
-      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [showAddForm, setShowAddForm] = useState(false);
 
-      // 表單狀態
-      const [formData, setFormData] = useState({
-        shop: '',
-        item: '',
-        price: '',
-        ice: '微冰',
-        sugar: '微糖'
-      });
+      const [formData, setFormData] = useState({ shop: '', item: '', price: '', ice: '微冰', sugar: '微糖' });
 
-      // --- 選項定義 ---
-      const ICE_OPTIONS = ['正常', '少冰', '微冰', '去冰', '常溫', '溫'];
-      const SUGAR_OPTIONS = ['全糖', '少糖', '半糖', '微糖', '一分糖', '無糖'];
-
-      // --- 初始化與儲存 (LocalStorage) ---
+      // --- 初始化 ---
       useEffect(() => {
+        const todayKey = formatDateKey(new Date());
+        setSelectedDateKey(todayKey);
+        
         try {
-          const savedRecords = localStorage.getItem('bobaRecords');
-          if (savedRecords) {
-            setRecords(JSON.parse(savedRecords));
-          }
-        } catch (error) {
-          console.error("無法讀取紀錄:", error);
-        }
+          const saved = localStorage.getItem('emmaBobaRecords');
+          if (saved) setRecords(JSON.parse(saved));
+        } catch (e) { console.error(e); }
       }, []);
 
       useEffect(() => {
-        try {
-          localStorage.setItem('bobaRecords', JSON.stringify(records));
-        } catch (error) {
-          console.error("無法儲存紀錄:", error);
+        if (Object.keys(records).length > 0) {
+          localStorage.setItem('emmaBobaRecords', JSON.stringify(records));
         }
       }, [records]);
 
-      // --- 日期輔助函數 ---
-      const getDaysInMonth = (date) => {
-        const year = date.getFullYear();
-        const month = date.getMonth();
-        const days = new Date(year, month + 1, 0).getDate();
-        const firstDay = new Date(year, month, 1).getDay();
-        return { days, firstDay };
-      };
-
-      const formatDateKey = (date) => {
-        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      };
-
-      const handleDateClick = (day) => {
-        const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
-        setSelectedDate(formatDateKey(date));
-        setIsModalOpen(true);
-        // 重置表單
-        setFormData({ shop: '', item: '', price: '', ice: '微冰', sugar: '微糖' });
-      };
-
       const changeMonth = (offset) => {
-        const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1);
-        setCurrentDate(newDate);
+        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
       };
 
-      // --- 新增紀錄邏輯 ---
       const handleAddRecord = (e) => {
         e.preventDefault();
-        if (!selectedDate) return;
-
-        const currentRecords = records[selectedDate] || [];
-        if (currentRecords.length >= 2) {
-          alert("為了健康著想，一天上限是兩杯喔！🥤");
+        if (!selectedDateKey) return;
+        
+        const current = records[selectedDateKey] || [];
+        if (current.length >= 2) {
+          alert("今天已經兩杯了！該喝水囉 💧");
           return;
         }
 
-        const newRecord = {
-          id: Date.now(),
-          ...formData,
-          price: Number(formData.price) || 0
-        };
-
-        setRecords({
-          ...records,
-          [selectedDate]: [...currentRecords, newRecord]
-        });
-
-        // 成功加入後重置表單
+        const newRec = { id: Date.now(), ...formData, price: Number(formData.price) || 0 };
+        setRecords({ ...records, [selectedDateKey]: [...current, newRec] });
         setFormData({ shop: '', item: '', price: '', ice: '微冰', sugar: '微糖' });
+        setShowAddForm(false);
       };
 
-      const handleDeleteRecord = (dateKey, id) => {
-        const updatedDayRecords = records[dateKey].filter(r => r.id !== id);
-        if (updatedDayRecords.length === 0) {
-          const newRecords = { ...records };
-          delete newRecords[dateKey];
-          setRecords(newRecords);
-        } else {
-          setRecords({
-            ...records,
-            [dateKey]: updatedDayRecords
-          });
-        }
+      const handleDelete = (id) => {
+        const updated = records[selectedDateKey].filter(r => r.id !== id);
+        const newRecords = { ...records };
+        if (updated.length === 0) delete newRecords[selectedDateKey];
+        else newRecords[selectedDateKey] = updated;
+        setRecords(newRecords);
       };
 
-      // --- 統計計算 ---
-      const calculateStats = () => {
-        let totalCups = 0;
-        let totalPrice = 0;
-        let shopCounts = {};
-        let iceCounts = {};
-        let sugarCounts = {};
-
-        Object.values(records).forEach(dayRecords => {
-          dayRecords.forEach(record => {
-            totalCups += 1;
-            totalPrice += record.price;
-            shopCounts[record.shop] = (shopCounts[record.shop] || 0) + 1;
-            iceCounts[record.ice] = (iceCounts[record.ice] || 0) + 1;
-            sugarCounts[record.sugar] = (sugarCounts[record.sugar] || 0) + 1;
-          });
-        });
-
-        const topShop = Object.entries(shopCounts).sort((a, b) => b[1] - a[1])[0];
-
-        return { totalCups, totalPrice, topShop, iceCounts, sugarCounts };
-      };
-
-      // --- UI 元件 ---
-      const CalendarView = () => {
-        const { days, firstDay } = getDaysInMonth(currentDate);
-        const blanks = Array(firstDay).fill(null);
-        const dayArray = Array.from({ length: days }, (_, i) => i + 1);
-
-        return (
-          <div className="bg-white/80 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-orange-100">
-            <div className="flex justify-between items-center mb-6 px-2">
-              <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-orange-100 rounded-full transition-colors font-bold text-orange-600">◀</button>
-              <h2 className="text-xl font-bold text-orange-800 tracking-wider">
-                {currentDate.getFullYear()} 年 {currentDate.getMonth() + 1} 月
-              </h2>
-              <button onClick={() => changeMonth(1)} className="p-2 hover:bg-orange-100 rounded-full transition-colors font-bold text-orange-600">▶</button>
-            </div>
-
-            <div className="grid grid-cols-7 gap-2 mb-2">
-              {['日', '一', '二', '三', '四', '五', '六'].map(d => (
-                <div key={d} className="text-center text-xs font-bold text-orange-400">{d}</div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-2">
-              {blanks.map((_, i) => <div key={`blank-${i}`} className="h-24"></div>)}
-              {dayArray.map(day => {
-                const dateKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const dayRecords = records[dateKey] || [];
-                const isToday = formatDateKey(new Date()) === dateKey;
-
-                return (
-                  <div 
-                    key={day} 
-                    onClick={() => handleDateClick(day)}
-                    className={`h-24 rounded-xl border flex flex-col items-center justify-start p-1 cursor-pointer transition-all active:scale-95
-                      ${isToday ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-200' : 'border-orange-100 bg-white hover:bg-orange-50'}
-                    `}
-                  >
-                    <span className={`text-sm font-bold mb-1 ${isToday ? 'text-orange-600' : 'text-gray-500'}`}>{day}</span>
-                    <div className="flex flex-col gap-1 w-full px-1">
-                      {dayRecords.map((rec, idx) => (
-                        <div key={idx} className="h-6 w-full bg-orange-200 rounded-md flex items-center justify-center text-[10px] text-orange-800 truncate px-1 shadow-sm">
-                          🥤 {rec.item}
-                        </div>
-                      ))}
-                      {dayRecords.length === 0 && <div className="h-full flex items-center justify-center opacity-10 text-2xl">🧋</div>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      };
-
-      const StatsView = () => {
-        const stats = calculateStats();
-        return (
-          <div className="bg-white/90 backdrop-blur rounded-2xl p-6 shadow-xl border border-orange-100 space-y-6">
-            <h2 className="text-2xl font-bold text-orange-800 mb-4 flex items-center gap-2">📊 喝飲料統計</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
-                <div className="text-orange-400 text-sm mb-1 font-medium">總杯數</div>
-                <div className="text-3xl font-bold text-orange-700">{stats.totalCups} <span className="text-base font-normal">杯</span></div>
-              </div>
-              <div className="bg-green-50 p-4 rounded-xl border border-green-100">
-                <div className="text-green-500 text-sm mb-1 font-medium">總花費</div>
-                <div className="text-3xl font-bold text-green-700">${stats.totalPrice}</div>
-              </div>
-            </div>
-            {stats.topShop && (
-              <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 flex items-center justify-between">
-                <div>
-                  <div className="text-amber-500 text-sm font-medium">最常喝的店</div>
-                  <div className="text-xl font-bold text-amber-800">{stats.topShop[0]}</div>
-                </div>
-                <div className="text-3xl font-bold text-amber-300">#{stats.topShop[1]}</div>
-              </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 border rounded-xl">
-                 <h3 className="text-sm font-bold text-gray-500 mb-3 flex items-center gap-1">🧊 冰塊偏好</h3>
-                 <div className="space-y-2">
-                    {Object.entries(stats.iceCounts).map(([k, v]) => (
-                       <div key={k} className="flex justify-between text-sm">
-                         <span>{k}</span><span className="font-bold text-orange-600">{v} 杯</span>
-                       </div>
-                    ))}
-                 </div>
-              </div>
-              <div className="p-4 border rounded-xl">
-                 <h3 className="text-sm font-bold text-gray-500 mb-3 flex items-center gap-1">💧 甜度偏好</h3>
-                 <div className="space-y-2">
-                    {Object.entries(stats.sugarCounts).map(([k, v]) => (
-                       <div key={k} className="flex justify-between text-sm">
-                         <span>{k}</span><span className="font-bold text-orange-600">{v} 杯</span>
-                       </div>
-                    ))}
-                 </div>
-              </div>
-            </div>
-          </div>
-        );
-      };
-
+      // --- Render ---
       return (
-        <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-100 to-yellow-50 p-4 md:p-8 font-sans text-slate-700 pb-safe">
-          <div className="max-w-md mx-auto relative">
-            <div className="flex justify-between items-center mb-6 pt-safe">
-              <div>
-                <h1 className="text-3xl font-black text-orange-900 tracking-tight">今日你喝哪一杯？</h1>
-                <p className="text-orange-600/70 text-sm mt-1">紀錄每一滴快樂</p>
-              </div>
-              <button onClick={() => setView(view === 'calendar' ? 'stats' : 'calendar')} className="bg-white p-3 rounded-xl shadow-md text-orange-500 hover:text-orange-600 hover:shadow-lg transition-all text-xl">
-                {view === 'calendar' ? '📊' : '📅'}
-              </button>
-            </div>
-            {view === 'calendar' ? <CalendarView /> : <StatsView />}
-            {isModalOpen && (
-              <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-                  <div className="bg-orange-500 p-4 flex justify-between items-center text-white">
-                    <h3 className="font-bold text-lg">{selectedDate} 飲料紀錄</h3>
-                    <button onClick={() => setIsModalOpen(false)} className="text-white hover:bg-orange-600 rounded-full p-1">✕</button>
-                  </div>
-                  <div className="p-6 max-h-[80vh] overflow-y-auto">
-                    <div className="space-y-3 mb-6">
-                      {records[selectedDate]?.map((record) => (
-                        <div key={record.id} className="bg-orange-50 p-3 rounded-xl flex justify-between items-center border border-orange-100">
-                          <div>
-                            <div className="font-bold text-orange-900">{record.shop} - {record.item}</div>
-                            <div className="text-xs text-orange-600 mt-1">{record.ice} • {record.sugar} • ${record.price}</div>
-                          </div>
-                          <button onClick={() => handleDeleteRecord(selectedDate, record.id)} className="text-red-300 hover:text-red-500 p-2">🗑️</button>
-                        </div>
-                      ))}
-                      {(!records[selectedDate] || records[selectedDate].length === 0) && <p className="text-center text-gray-400 text-sm py-2">今天還沒喝飲料喔</p>}
-                    </div>
-                    {(records[selectedDate]?.length || 0) < 2 ? (
-                      <form onSubmit={handleAddRecord} className="space-y-4 border-t pt-4">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div><label className="text-xs font-bold text-gray-500 mb-1 block">店名</label><input type="text" required className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" placeholder="例如：50嵐" value={formData.shop} onChange={e => setFormData({...formData, shop: e.target.value})} /></div>
-                          <div><label className="text-xs font-bold text-gray-500 mb-1 block">品項</label><input type="text" required className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" placeholder="例如：四季春" value={formData.item} onChange={e => setFormData({...formData, item: e.target.value})} /></div>
-                        </div>
-                        <div><label className="text-xs font-bold text-gray-500 mb-1 block">價格</label><div className="relative"><span className="absolute left-3 top-2 text-gray-400">$</span><input type="number" required className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" placeholder="0" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} /></div></div>
-                        <div><label className="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1">🧊 冰塊</label><div className="grid grid-cols-3 gap-2">{ICE_OPTIONS.map(opt => (<button key={opt} type="button" onClick={() => setFormData({...formData, ice: opt})} className={`text-xs py-2 rounded-lg border transition-all ${formData.ice === opt ? 'bg-blue-100 border-blue-300 text-blue-700 font-bold' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>{opt}</button>))}</div></div>
-                        <div><label className="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1">💧 甜度</label><div className="grid grid-cols-3 gap-2">{SUGAR_OPTIONS.map(opt => (<button key={opt} type="button" onClick={() => setFormData({...formData, sugar: opt})} className={`text-xs py-2 rounded-lg border transition-all ${formData.sugar === opt ? 'bg-pink-100 border-pink-300 text-pink-700 font-bold' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>{opt}</button>))}</div></div>
-                        <button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl shadow-lg shadow-orange-200 transform active:scale-95 transition-all flex items-center justify-center gap-2">➕ 加入紀錄</button>
-                      </form>
-                    ) : <div className="bg-gray-100 rounded-xl p-4 text-center text-gray-500 text-sm mt-4">🎉 今日扣打已用完 (上限 2 杯)</div>}
-                  </div>
-                </div>
-              </div>
+        <React.Fragment>
+          <div className="flex-none bg-m-bg z-10 shadow-sm relative">
+            {view === 'calendar' && (
+              <React.Fragment>
+                <MainHeader />
+                <CalendarHeader currentDate={currentDate} changeMonth={changeMonth} records={records} />
+                <CalendarGrid 
+                  currentDate={currentDate} 
+                  selectedDateKey={selectedDateKey} 
+                  setSelectedDateKey={setSelectedDateKey} 
+                  setShowAddForm={setShowAddForm} 
+                  records={records} 
+                />
+              </React.Fragment>
+            )}
+            {view === 'stats' && (
+               <div className="px-6 py-4 flex items-center gap-2">
+                 <button onClick={() => setView('calendar')} className="text-m-subtext hover:text-m-text"><Icons.Left/></button>
+                 <span className="font-bold text-m-text">Back to Calendar</span>
+               </div>
             )}
           </div>
-        </div>
+          
+          {view === 'calendar' ? (
+            <RecordList 
+              records={records} 
+              selectedDateKey={selectedDateKey} 
+              handleDelete={handleDelete} 
+              setShowAddForm={setShowAddForm} 
+            />
+          ) : (
+            <StatsView records={records} />
+          )}
+          
+          <div className="h-16 bg-white border-t border-m-line flex items-center justify-around px-6 z-20 shrink-0">
+            <button onClick={() => setView('calendar')} className={`flex flex-col items-center gap-1 ${view === 'calendar' ? 'text-m-primary' : 'text-gray-300'}`}>
+              <Icons.Calendar size={20} />
+              <span className="text-[10px] font-medium">Diary</span>
+            </button>
+            <button onClick={() => setView('stats')} className={`flex flex-col items-center gap-1 ${view === 'stats' ? 'text-m-primary' : 'text-gray-300'}`}>
+              <Icons.Stats size={20} />
+              <span className="text-[10px] font-medium">Stats</span>
+            </button>
+          </div>
+
+          <AddForm 
+            showAddForm={showAddForm} 
+            setShowAddForm={setShowAddForm} 
+            handleAddRecord={handleAddRecord} 
+            formData={formData} 
+            setFormData={setFormData} 
+          />
+        </React.Fragment>
       );
     };
 
